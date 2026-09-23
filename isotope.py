@@ -23,7 +23,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 _ISOTOPE_MANAGED = os.environ.get("ISOTOPE_MANAGED") == "1"
 _CP_LOG    = "__CRUCIBLE_LOG__:"
