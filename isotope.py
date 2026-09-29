@@ -228,6 +228,34 @@ class IsotopeOutput:
         self.findings.append(f)
         _console.log(f"FINDING [{risk}] {title}", "FINDING")
 
+    def add_action_item(self, entry):
+        self._action_items = getattr(self, "_action_items", [])
+        self._ai_seen = getattr(self, "_ai_seen", set())
+        key = (entry["recommended_tool"].lower(),
+               entry["target"].lower(),
+               entry["title"].strip().lower())
+        if key in self._ai_seen:
+            return
+        self._ai_seen.add(key)
+        entry.setdefault("id", str(uuid.uuid4()))
+        entry.setdefault("status", "pending")
+        entry.setdefault("datetime", _now_iso())
+        entry.setdefault("metadata", {})
+        self._action_items.append(entry)
+        if _ISOTOPE_MANAGED:
+            sys.stdout.write(_CP_LOG + json.dumps(
+                {"ts": _now_iso(), "level": "ACTION_ITEM",
+                 "message": f"Action Item: {entry['title']}"}) + "\n")
+            sys.stdout.flush()
+
+    def write_action_items(self):
+        items = getattr(self, "_action_items", [])
+        if not items:
+            return
+        ai_path = self.root / "action_items.json"
+        ai_path.write_text(json.dumps(items, indent=2, default=str), encoding="utf-8")
+        _console.log(f"{len(items)} cross-tool action item(s) written", "SUCCESS")
+
     def file_dir(self, filename):
         safe = re.sub(r'[^\w.\-]', '_', filename)
         d = self.analysis_dir / safe
@@ -1121,6 +1149,7 @@ def run_analysis(cfg):
             results.append(result)
 
     out.write_results(results)
+    _generate_action_items(out, results)
     _console.status("overall", label="Overall Progress", status="complete", pct=100)
 
     total_findings = sum(r.get("findings_count", 0) for r in results)
@@ -1128,6 +1157,136 @@ def run_analysis(cfg):
     _console.log(f"Results written to {output_dir}/", "SUCCESS")
 
     return 0
+
+
+def _generate_action_items(out, results):
+    """Generate cross-tool action items from Isotope analysis results."""
+    _CONN_STRING_PROTOS = {"mysql", "postgres", "mongodb", "redis", "mssql",
+                           "postgresql", "mariadb", "sqlserver"}
+
+    for r in results:
+        fname = r.get("file", "")
+        fdir = out.analysis_dir / re.sub(r'[^\w.\-]', '_', Path(fname).name)
+        strings_json = fdir / "strings.json"
+        secrets_json = fdir / "secrets.json"
+
+        # Load extracted strings
+        urls = []
+        ips = []
+        if strings_json.exists():
+            try:
+                sdata = json.loads(strings_json.read_text(encoding="utf-8"))
+                urls = sdata.get("urls", [])
+                ips = sdata.get("ip_addresses", [])
+            except Exception:
+                pass
+
+        # URLs → Fracture (web app testing) — deduplicate by domain
+        _url_domains = set()
+        for url in urls[:50]:
+            try:
+                from urllib.parse import urlparse
+                host = urlparse(url).hostname or ""
+            except Exception:
+                continue
+            if not host or host in _url_domains:
+                continue
+            if host.startswith("127.") or host == "localhost":
+                continue
+            _url_domains.add(host)
+            out.add_action_item({
+                "type": "web_app", "recommended_tool": "Fracture",
+                "target": url, "ip": "", "port": 0, "hostname": host,
+                "title": f"Web target from file analysis: {host}",
+                "description": (
+                    f"Isotope extracted URL {url} from {fname}. "
+                    f"Fracture can test this web target for vulnerabilities."),
+                "source_finding": f"URL in {fname}",
+                "priority": "MEDIUM", "scope": "ext",
+            })
+
+        # IPs → SS3 (network scan) — deduplicate, skip private by default
+        _seen_ips = set()
+        for ip in ips[:30]:
+            ip = ip.strip().split(":")[0]
+            if ip in _seen_ips or ip.startswith("127.") or ip == "0.0.0.0":
+                continue
+            _seen_ips.add(ip)
+            out.add_action_item({
+                "type": "network_scan", "recommended_tool": "Scattershot3",
+                "target": ip, "ip": ip, "port": 0, "hostname": "",
+                "title": f"Network scan: IP from file analysis",
+                "description": (
+                    f"Isotope extracted IP {ip} from {fname}. "
+                    f"Scattershot3 can perform comprehensive port/service "
+                    f"scanning and vulnerability assessment."),
+                "source_finding": f"IP in {fname}",
+                "priority": "MEDIUM", "scope": "ext",
+            })
+
+        # Load secrets
+        if secrets_json.exists():
+            try:
+                secrets = json.loads(secrets_json.read_text(encoding="utf-8"))
+            except Exception:
+                secrets = []
+        else:
+            secrets = []
+
+        for secret in secrets:
+            stype = secret.get("type", "").lower()
+            match = secret.get("match", "")
+
+            # Connection strings → Auger (database testing)
+            if "connection string" in stype:
+                try:
+                    proto = match.split("://")[0].lower()
+                except Exception:
+                    proto = "database"
+                if proto in _CONN_STRING_PROTOS:
+                    out.add_action_item({
+                        "type": "database_audit", "recommended_tool": "Auger",
+                        "target": match[:100], "ip": "", "port": 0, "hostname": "",
+                        "title": f"Database connection string: {proto}",
+                        "description": (
+                            f"Isotope found a {proto} connection string in {fname}. "
+                            f"Auger can test this database endpoint for authentication "
+                            f"weaknesses, default credentials, and misconfigurations."),
+                        "source_finding": f"{secret.get('type', '')} in {fname}",
+                        "priority": "CRITICAL", "scope": "ext",
+                    })
+
+            # AWS/Azure/cloud credentials → Forge (cloud audit)
+            if any(kw in stype for kw in ("aws", "azure", "stripe", "google")):
+                out.add_action_item({
+                    "type": "cloud_audit", "recommended_tool": "Forge",
+                    "target": fname, "ip": "", "port": 0, "hostname": "",
+                    "title": f"Cloud credential: {secret.get('type', '')}",
+                    "description": (
+                        f"Isotope found {secret.get('type', 'a cloud credential')} "
+                        f"in {fname}. Forge can use these credentials to audit "
+                        f"cloud provider configuration, IAM policies, and "
+                        f"identify exposed resources."),
+                    "source_finding": f"{secret.get('type', '')} in {fname}",
+                    "priority": "CRITICAL", "scope": "ext",
+                })
+
+            # API keys/tokens → Siphon (API testing)
+            if any(kw in stype for kw in ("api key", "bearer", "jwt", "github token",
+                                           "slack token", "generic secret")):
+                out.add_action_item({
+                    "type": "api", "recommended_tool": "Siphon",
+                    "target": fname, "ip": "", "port": 0, "hostname": "",
+                    "title": f"API credential for testing: {secret.get('type', '')}",
+                    "description": (
+                        f"Isotope found {secret.get('type', 'an API credential')} "
+                        f"in {fname}. Siphon can use discovered API keys/tokens "
+                        f"to test API endpoints for authorization flaws."),
+                    "source_finding": f"{secret.get('type', '')} in {fname}",
+                    "priority": "HIGH", "scope": "ext",
+                })
+
+    out.write_action_items()
 
 
 def main():
