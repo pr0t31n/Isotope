@@ -1142,8 +1142,9 @@ def run_analysis(cfg):
 
     results = []
     for i, filepath in enumerate(files):
-        _console.status("overall", label="Overall Progress",
-                       step=f"file_{i+1}", pct=int(i / len(files) * 100))
+        fname = Path(filepath).name if isinstance(filepath, str) else filepath.name
+        _console.status("overall", label=f"file {i+1}/{len(files)}",
+                       step=fname, pct=int(i / len(files) * 100))
         result = analyse_file(filepath, out, depth=0, max_depth=max_depth, modules=modules)
         if result:
             results.append(result)
