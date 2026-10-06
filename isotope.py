@@ -482,7 +482,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
             for secret in secrets_result:
                 out.add_finding(
-                    title=f"{secret['type']} found in file",
+                    title="Information Disclosure: Secret in File",
                     risk=secret["risk"],
                     description=f"A {secret['type']} was detected in {filepath.name} at line {secret.get('line', '?')}.\n"
                                 f"Match: {secret['match'][:80]}{'...' if len(secret['match']) > 80 else ''}",
