@@ -64,11 +64,16 @@ class IsotopeConsole:
         else:
             print(f"[{entry['ts']}] ERROR: {msg}" + (f" — {detail}" if detail else ""), file=sys.stderr)
 
-    def status(self, phase, label="", status="running", step="", pct=None):
+    def status(self, phase, label="", status="running", step="", pct=None,
+               target="", target_total=0):
         entry = {"ts": _now_iso(), "phase": phase, "label": label or phase,
                  "status": status, "step": step}
         if pct is not None:
             entry["pct"] = pct
+        if target:
+            entry["target"] = target
+        if target_total > 1:
+            entry["target_total"] = target_total
         if self._managed:
             sys.stdout.write(_CP_STATUS + json.dumps(entry) + "\n")
             sys.stdout.flush()
@@ -363,7 +368,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
         return result
 
     out.log(f"Analysing: {filepath.name} ({_fmt_size(len(data))})")
-    _console.status("analysis", label=filepath.name, status="running", step="identification")
+    _console.status("analysis", label=filepath.name, status="running", step="identification",
+                   target=filepath.name)
 
     # ── 1. Identification ────────────────────────────────────
     ident = _identify(filepath, data)
@@ -372,7 +378,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
     # ── 2. Hashing + IOC lookup ──────────────────────────────
     if "hashing" in modules:
-        _console.status("analysis", label=filepath.name, step="hashing")
+        _console.status("analysis", label=filepath.name, step="hashing",
+                       target=filepath.name)
         hashes = _compute_hashes(data)
         result["hashes"] = hashes
         ioc_hits = _check_ioc(hashes)
@@ -396,7 +403,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
     # ── 3. Entropy / encryption detection ────────────────────
     if "entropy" in modules:
-        _console.status("analysis", label=filepath.name, step="entropy")
+        _console.status("analysis", label=filepath.name, step="entropy",
+                       target=filepath.name)
         entropy_result = _analyse_entropy(data)
         result["entropy"] = entropy_result["overall_entropy"]
         result["encryption_assessment"] = entropy_result["assessment"]
@@ -419,21 +427,24 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
     # ── 4. String extraction ─────────────────────────────────
     if "strings" in modules:
-        _console.status("analysis", label=filepath.name, step="strings")
+        _console.status("analysis", label=filepath.name, step="strings",
+                       target=filepath.name)
         strings_result = _extract_strings(data)
         _write_json(file_dir / "strings.json", strings_result)
         result["string_count"] = strings_result["total"]
 
     # ── 5. Code analysis ─────────────────────────────────────
     if "code" in modules and ident.get("classification") == "code":
-        _console.status("analysis", label=filepath.name, step="code")
+        _console.status("analysis", label=filepath.name, step="code",
+                       target=filepath.name)
         code_result = _analyse_code(filepath, data)
         _write_json(file_dir / "code.json", code_result)
         result["code"] = code_result
 
     # ── 6. Metadata extraction ───────────────────────────────
     if "metadata" in modules:
-        _console.status("analysis", label=filepath.name, step="metadata")
+        _console.status("analysis", label=filepath.name, step="metadata",
+                       target=filepath.name)
         meta_result = _extract_metadata(filepath, data, ident)
         if meta_result:
             _write_json(file_dir / "metadata.json", meta_result)
@@ -454,7 +465,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
     # ── 7. Binary / executable analysis ──────────────────────
     if "binary" in modules and ident.get("classification") == "executable":
-        _console.status("analysis", label=filepath.name, step="binary")
+        _console.status("analysis", label=filepath.name, step="binary",
+                       target=filepath.name)
         binary_result = _analyse_binary(data, ident)
         _write_json(file_dir / "binary.json", binary_result)
         result["binary"] = binary_result
@@ -474,7 +486,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
     # ── 8. Secrets scanning ──────────────────────────────────
     if "secrets" in modules:
-        _console.status("analysis", label=filepath.name, step="secrets")
+        _console.status("analysis", label=filepath.name, step="secrets",
+                       target=filepath.name)
         secrets_result = _scan_secrets(data, filepath.name)
         if secrets_result:
             _write_json(file_dir / "secrets.json", secrets_result)
@@ -497,7 +510,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
     # ── 9. Archive extraction + recursive analysis ───────────
     if "archive" in modules and ident.get("is_archive") and depth < max_depth:
-        _console.status("analysis", label=filepath.name, step="archive")
+        _console.status("analysis", label=filepath.name, step="archive",
+                       target=filepath.name)
         contents = _extract_archive(filepath, data, ident, out, file_dir, depth, max_depth, modules)
         if contents:
             _write_json(file_dir / "contents.json", contents)
@@ -525,7 +539,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     result["classification"] = ident.get("classification", "unknown")
     result["mime"] = ident.get("mime", "")
 
-    _console.status("analysis", label=filepath.name, status="complete")
+    _console.status("analysis", label=filepath.name, status="complete",
+                   target=filepath.name)
     return result
 
 
@@ -584,10 +599,38 @@ def _identify(filepath, data):
     else:
         classification = "binary"
 
+    line_count = None
+    packages = []
+    if is_text:
+        line_count = data.count(b'\n') + (1 if data and not data.endswith(b'\n') else 0)
+    if is_code and is_text:
+        try:
+            head = data[:32768].decode("utf-8", errors="replace")
+            _PKG_RE = [
+                re.compile(r'^\s*import\s+([A-Za-z_][\w.]*)', re.MULTILINE),
+                re.compile(r'^\s*from\s+([A-Za-z_][\w.]*)\s+import', re.MULTILINE),
+                re.compile(r'''(?:require|require_once|include|include_once)\s*[\('"]\s*([^\)'"]+)''', re.MULTILINE),
+                re.compile(r'''const\s+\w+\s*=\s*require\s*\(\s*['"]([^'"]+)''', re.MULTILINE),
+                re.compile(r'''import\s+.*?\s+from\s+['"]([^'"]+)''', re.MULTILINE),
+                re.compile(r'^\s*using\s+([\w.]+)\s*;', re.MULTILINE),
+                re.compile(r'^\s*#include\s*[<"]([^>"]+)', re.MULTILINE),
+            ]
+            seen = set()
+            for pat in _PKG_RE:
+                for m in pat.finditer(head):
+                    pkg = m.group(1).strip()
+                    if pkg and pkg not in seen and not pkg.startswith('.'):
+                        seen.add(pkg)
+                        packages.append(pkg)
+        except Exception:
+            pass
+
     return {
         "filename": filepath.name,
         "extension": ext,
         "size": len(data),
+        "size_human": _fmt_size(len(data)),
+        "path": str(filepath),
         "mime": mime,
         "mime_guessed": mime_guess,
         "magic_description": magic_desc,
@@ -598,6 +641,8 @@ def _identify(filepath, data):
         "is_certificate": is_cert,
         "classification": classification,
         "code_language": CODE_EXTENSIONS.get(ext, "") if is_code else "",
+        "line_count": line_count,
+        "packages": packages,
     }
 
 
@@ -1144,7 +1189,8 @@ def run_analysis(cfg):
     for i, filepath in enumerate(files):
         fname = Path(filepath).name if isinstance(filepath, str) else filepath.name
         _console.status("overall", label=f"file {i+1}/{len(files)}",
-                       step=fname, pct=int(i / len(files) * 100))
+                       step=fname, pct=int(i / len(files) * 100),
+                       target=fname, target_total=len(files))
         result = analyse_file(filepath, out, depth=0, max_depth=max_depth, modules=modules)
         if result:
             results.append(result)
