@@ -77,6 +77,18 @@ class IsotopeConsole:
         if self._managed:
             sys.stdout.write(_CP_STATUS + json.dumps(entry) + "\n")
             sys.stdout.flush()
+        else:
+            ts = datetime.now().strftime("%H:%M:%S")
+            parts = [f"[{ts}]", f"STATUS({phase})"]
+            if step:
+                parts.append(step)
+            if label and label != phase:
+                parts.append(f"— {label}")
+            if pct is not None:
+                parts.append(f"({pct}%)")
+            if status != "running":
+                parts.append(f"[{status.upper()}]")
+            print(" ".join(parts))
 
 _console = IsotopeConsole()
 
@@ -270,6 +282,7 @@ class IsotopeOutput:
     def write_results(self, file_results):
         findings_path = self.root / "findings.json"
         findings_path.write_text(json.dumps(self.findings, indent=2, ensure_ascii=False), encoding="utf-8")
+        _console.log(f"Wrote {len(self.findings)} finding(s) to {findings_path}")
 
         csv_path = self.root / "findings.csv"
         if self.findings:
@@ -280,6 +293,8 @@ class IsotopeOutput:
                 w.writeheader()
                 for f in self.findings:
                     w.writerow(f)
+
+        _console.log(f"Wrote findings CSV to {csv_path}")
 
         summary = {
             "tool": "isotope",
@@ -292,6 +307,7 @@ class IsotopeOutput:
             "files": [_file_summary(r) for r in file_results],
         }
         (self.root / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        _console.log(f"Wrote summary.json ({len(file_results)} files)")
 
         log_path = self.root / "scan.log"
         log_path.write_text("\n".join(self.log_lines) + "\n", encoding="utf-8")
@@ -372,19 +388,28 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                    target=filepath.name)
 
     # ── 1. Identification ────────────────────────────────────
+    out.log(f"[identification] Identifying file type for {filepath.name}...")
     ident = _identify(filepath, data)
     result.update(ident)
     _write_json(file_dir / "properties.json", ident)
+    out.log(f"[identification] {filepath.name} — classified as {ident.get('classification', 'unknown')} "
+            f"(mime={ident.get('mime', '?')}, magic={ident.get('magic_description', 'none')})")
 
     # ── 2. Hashing + IOC lookup ──────────────────────────────
     if "hashing" in modules:
         _console.status("analysis", label=filepath.name, step="hashing",
                        target=filepath.name)
+        out.log(f"[hashing] Computing cryptographic hashes for {filepath.name} ({_fmt_size(len(data))})...")
         hashes = _compute_hashes(data)
         result["hashes"] = hashes
+        out.log(f"[hashing] Hashes computed — SHA256={hashes.get('sha256', '?')[:16]}..., "
+                f"ssdeep={'available' if hashes.get('ssdeep') else 'unavailable'}, "
+                f"tlsh={'available' if hashes.get('tlsh') else 'unavailable'}")
+        out.log(f"[hashing] Checking hash against IOC databases...")
         ioc_hits = _check_ioc(hashes)
         hashes["ioc_hits"] = ioc_hits
         _write_json(file_dir / "hashes.json", hashes)
+        out.log(f"[hashing] IOC lookup complete — {len(ioc_hits)} hit(s) found")
 
         if ioc_hits:
             for hit in ioc_hits:
@@ -405,10 +430,15 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     if "entropy" in modules:
         _console.status("analysis", label=filepath.name, step="entropy",
                        target=filepath.name)
+        out.log(f"[entropy] Calculating Shannon entropy for {filepath.name}...")
         entropy_result = _analyse_entropy(data)
         result["entropy"] = entropy_result["overall_entropy"]
         result["encryption_assessment"] = entropy_result["assessment"]
         _write_json(file_dir / "entropy.json", entropy_result)
+        out.log(f"[entropy] {filepath.name} — entropy={entropy_result['overall_entropy']:.4f}, "
+                f"assessment={entropy_result['assessment']}"
+                + (f", method={entropy_result.get('estimated_method', '')}"
+                   if entropy_result.get('estimated_method') else ""))
 
         if entropy_result["assessment"] in ("likely_encrypted", "possibly_encrypted"):
             out.add_finding(
@@ -429,26 +459,44 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     if "strings" in modules:
         _console.status("analysis", label=filepath.name, step="strings",
                        target=filepath.name)
+        out.log(f"[strings] Extracting strings from {filepath.name}...")
         strings_result = _extract_strings(data)
         _write_json(file_dir / "strings.json", strings_result)
         result["string_count"] = strings_result["total"]
+        out.log(f"[strings] {filepath.name} — {strings_result['total']} strings "
+                f"(ASCII={strings_result['ascii_count']}, UTF-16={strings_result['utf16_count']}), "
+                f"URLs={len(strings_result.get('urls', []))}, "
+                f"IPs={len(strings_result.get('ip_addresses', []))}, "
+                f"emails={len(strings_result.get('email_addresses', []))}")
 
     # ── 5. Code analysis ─────────────────────────────────────
     if "code" in modules and ident.get("classification") == "code":
         _console.status("analysis", label=filepath.name, step="code",
                        target=filepath.name)
+        out.log(f"[code] Analysing source code: {filepath.name} (language={ident.get('code_language', '?')})...")
         code_result = _analyse_code(filepath, data)
         _write_json(file_dir / "code.json", code_result)
         result["code"] = code_result
+        out.log(f"[code] {filepath.name} — {code_result.get('language', '?')}: "
+                f"{code_result.get('code_lines', 0)} code / {code_result.get('comment_lines', 0)} comment / "
+                f"{code_result.get('blank_lines', 0)} blank lines, "
+                f"{len(code_result.get('imports', []))} imports, "
+                f"frameworks={code_result.get('frameworks', []) or 'none'}")
 
     # ── 6. Metadata extraction ───────────────────────────────
     if "metadata" in modules:
         _console.status("analysis", label=filepath.name, step="metadata",
                        target=filepath.name)
+        out.log(f"[metadata] Extracting metadata from {filepath.name} (mime={ident.get('mime', '?')})...")
         meta_result = _extract_metadata(filepath, data, ident)
         if meta_result:
             _write_json(file_dir / "metadata.json", meta_result)
             result["metadata"] = meta_result
+            meta_keys = [k for k in meta_result if k not in ("timestamps",)]
+            out.log(f"[metadata] {filepath.name} — extracted: {', '.join(meta_keys) or 'timestamps only'}"
+                    + (f", GPS={meta_result['gps_coordinates']}" if meta_result.get("gps_coordinates") else ""))
+        else:
+            out.log(f"[metadata] {filepath.name} — no extractable metadata found")
 
             if meta_result.get("gps_coordinates"):
                 out.add_finding(
@@ -467,9 +515,15 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     if "binary" in modules and ident.get("classification") == "executable":
         _console.status("analysis", label=filepath.name, step="binary",
                        target=filepath.name)
+        out.log(f"[binary] Analysing executable: {filepath.name}...")
         binary_result = _analyse_binary(data, ident)
         _write_json(file_dir / "binary.json", binary_result)
         result["binary"] = binary_result
+        out.log(f"[binary] {filepath.name} — format={binary_result.get('format', '?')}, "
+                f"arch={binary_result.get('architecture', '?')}, "
+                f"bits={binary_result.get('bits', '?')}, "
+                f"sections={len(binary_result.get('sections', []))}, "
+                f"packers={binary_result.get('packers', []) or 'none'}")
 
         if binary_result.get("packers"):
             out.add_finding(
@@ -488,10 +542,17 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     if "secrets" in modules:
         _console.status("analysis", label=filepath.name, step="secrets",
                        target=filepath.name)
+        out.log(f"[secrets] Scanning {filepath.name} for embedded secrets/credentials "
+                f"({len(SECRET_PATTERNS)} pattern families)...")
         secrets_result = _scan_secrets(data, filepath.name)
         if secrets_result:
             _write_json(file_dir / "secrets.json", secrets_result)
             result["secrets_count"] = len(secrets_result)
+            types_found = set(s.get("type", "") for s in secrets_result)
+            out.log(f"[secrets] {filepath.name} — {len(secrets_result)} secret(s) found: "
+                    f"{', '.join(sorted(types_found))}")
+        else:
+            out.log(f"[secrets] {filepath.name} — no secrets detected")
 
             for secret in secrets_result:
                 out.add_finding(
@@ -512,17 +573,36 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     if "archive" in modules and ident.get("is_archive") and depth < max_depth:
         _console.status("analysis", label=filepath.name, step="archive",
                        target=filepath.name)
+        out.log(f"[archive] Extracting archive {filepath.name} (depth={depth}, max={max_depth})...")
         contents = _extract_archive(filepath, data, ident, out, file_dir, depth, max_depth, modules)
         if contents:
             _write_json(file_dir / "contents.json", contents)
             result["archive_contents"] = contents
+            out.log(f"[archive] {filepath.name} — type={contents.get('type', '?')}, "
+                    f"{len(contents.get('entries', []))} entries, "
+                    f"{len(contents.get('recursive_results', []))} recursively analysed")
+        else:
+            out.log(f"[archive] {filepath.name} — extraction returned no contents")
 
     # ── 10. Certificate analysis ─────────────────────────────
     if ident.get("classification") == "certificate":
+        out.log(f"[certificate] Analysing certificate/key file: {filepath.name}...")
         cert_result = _analyse_certificate(data, filepath.name)
         if cert_result:
             _write_json(file_dir / "certificate.json", cert_result)
             result["certificate"] = cert_result
+            if cert_result.get("subject"):
+                out.log(f"[certificate] {filepath.name} — subject={cert_result.get('subject', '?')}, "
+                        f"issuer={cert_result.get('issuer', '?')}, "
+                        f"key={cert_result.get('key_type', '?')} {cert_result.get('key_bits', '?')}-bit, "
+                        f"expires={cert_result.get('not_after', '?')}")
+            elif cert_result.get("type") == "private_key":
+                out.log(f"[certificate] {filepath.name} — private key: "
+                        f"{cert_result.get('key_type', '?')} {cert_result.get('key_bits', '?')}-bit")
+            else:
+                out.log(f"[certificate] {filepath.name} — parsed with keys: {list(cert_result.keys())}")
+        else:
+            out.log(f"[certificate] {filepath.name} — could not parse certificate data")
 
             if cert_result.get("key_bits") and cert_result["key_bits"] < 2048:
                 out.add_finding(
@@ -541,6 +621,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
     _console.status("analysis", label=filepath.name, status="complete",
                    target=filepath.name)
+    out.log(f"[analysis] {filepath.name} complete — {result.get('findings_count', 0)} finding(s), "
+            f"class={result['classification']}, entropy={result.get('entropy', 'N/A')}")
     return result
 
 
@@ -999,6 +1081,7 @@ def _extract_archive(filepath, data, ident, out, file_dir, depth, max_depth, mod
 
         if mime == "application/zip" or filepath.suffix.lower() in ('.zip', '.jar', '.apk', '.docx', '.xlsx', '.pptx'):
             import zipfile
+            out.log(f"[archive] Opening ZIP container: {filepath.name}")
             try:
                 with zipfile.ZipFile(filepath) as zf:
                     contents["type"] = "zip"
@@ -1076,10 +1159,12 @@ def _extract_archive(filepath, data, ident, out, file_dir, depth, max_depth, mod
             except Exception as e:
                 contents["error"] = str(e)
 
-        out.log(f"Archive {filepath.name}: {len(contents['entries'])} entries, "
+        out.log(f"[archive] {filepath.name}: {len(contents['entries'])} entries, "
                 f"extracting {len(extracted_files)} files for deep analysis (depth {depth+1})")
 
-        for ef in extracted_files[:100]:
+        for j, ef in enumerate(extracted_files[:100]):
+            out.log(f"[archive] Recursive analysis {j+1}/{min(len(extracted_files), 100)}: {ef.name} "
+                    f"(depth {depth+1})")
             sub_result = analyse_file(ef, out, depth=depth + 1, max_depth=max_depth, modules=modules)
             if sub_result:
                 contents["recursive_results"].append(sub_result)
@@ -1184,6 +1269,9 @@ def run_analysis(cfg):
 
     out = IsotopeOutput(output_dir)
     out.log(f"Isotope v{VERSION} started — {len(files)} file(s) queued")
+    out.log(f"[config] Output directory: {output_dir}")
+    out.log(f"[config] Max archive depth: {max_depth}")
+    out.log(f"[config] Active modules: {', '.join(sorted(modules))}")
 
     results = []
     for i, filepath in enumerate(files):
@@ -1191,16 +1279,25 @@ def run_analysis(cfg):
         _console.status("overall", label=f"file {i+1}/{len(files)}",
                        step=fname, pct=int(i / len(files) * 100),
                        target=fname, target_total=len(files))
+        out.log(f"[overall] Processing file {i+1}/{len(files)}: {fname}")
         result = analyse_file(filepath, out, depth=0, max_depth=max_depth, modules=modules)
         if result:
             results.append(result)
+            out.log(f"[overall] File {i+1}/{len(files)} done — {result.get('findings_count', 0)} finding(s)")
+        else:
+            out.log(f"[overall] File {i+1}/{len(files)} skipped — no result returned")
 
+    out.log(f"[output] Writing results to {output_dir}/...")
     out.write_results(results)
+    out.log(f"[output] Generating cross-tool action items...")
     _generate_action_items(out, results)
     _console.status("overall", label="Overall Progress", status="complete", pct=100)
 
     total_findings = sum(r.get("findings_count", 0) for r in results)
-    out.log(f"Analysis complete: {len(results)} files, {total_findings} findings")
+    risk_counts = _risk_counts(out.findings)
+    out.log(f"Analysis complete: {len(results)} files, {total_findings} findings "
+            f"(C={risk_counts['CRITICAL']} H={risk_counts['HIGH']} M={risk_counts['MEDIUM']} "
+            f"L={risk_counts['LOW']} I={risk_counts['INFO']})")
     _console.log(f"Results written to {output_dir}/", "SUCCESS")
 
     return 0
@@ -1211,6 +1308,7 @@ def _generate_action_items(out, results):
     _CONN_STRING_PROTOS = {"mysql", "postgres", "mongodb", "redis", "mssql",
                            "postgresql", "mariadb", "sqlserver"}
 
+    out.log(f"[action-items] Scanning {len(results)} result(s) for cross-tool action items...")
     for r in results:
         fname = r.get("file", "")
         fdir = out.analysis_dir / re.sub(r'[^\w.\-]', '_', Path(fname).name)
@@ -1333,6 +1431,8 @@ def _generate_action_items(out, results):
                     "priority": "HIGH", "scope": "ext",
                 })
 
+    items = getattr(out, "_action_items", [])
+    out.log(f"[action-items] Action item generation complete — {len(items)} item(s) queued")
     out.write_action_items()
 
 
@@ -1340,15 +1440,19 @@ def main():
     args = _parse_args()
 
     if args.settings:
+        _console.log(f"Loading settings from {args.settings}")
         cfg_path = Path(args.settings)
         if not cfg_path.exists():
             _console.error(f"Settings file not found: {args.settings}")
             return 1
         cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        _console.log(f"Settings loaded — {len(cfg.get('scan', {}).get('files', []))} file(s) configured")
     else:
         if not args.files:
             _console.error("No files specified. Use: isotope file1 [file2 ...]")
             return 1
+        _console.log(f"CLI mode — {len(args.files)} file(s), output={args.output}, "
+                     f"max-depth={args.max_depth}, modules={args.modules}")
         modules = args.modules
         cfg = {
             "scan": {
