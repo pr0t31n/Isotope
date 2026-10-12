@@ -279,6 +279,12 @@ class IsotopeOutput:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    def rel(self, path):
+        try:
+            return str(Path(path).relative_to(self.root))
+        except ValueError:
+            return str(path)
+
     def write_results(self, file_results):
         findings_path = self.root / "findings.json"
         findings_path.write_text(json.dumps(self.findings, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -423,6 +429,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                     remediation="Quarantine this file immediately. Investigate its origin and any systems it has touched.",
                     cwe=["CWE-506"],
                     output=json.dumps(hit, indent=2),
+                    output_file=out.rel(file_dir / "hashes.json"),
                 )
                 result["findings_count"] += 1
 
@@ -452,6 +459,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                 output=f"Entropy: {entropy_result['overall_entropy']:.6f}\n"
                        f"Assessment: {entropy_result['assessment']}\n"
                        f"Estimated method: {entropy_result.get('estimated_method', 'unknown')}",
+                output_file=out.rel(file_dir / "entropy.json"),
             )
             result["findings_count"] += 1
 
@@ -508,6 +516,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                     remediation="Strip EXIF metadata before sharing files externally. "
                                 "Use tools like exiftool -all= to remove metadata.",
                     cwe=["CWE-200"],
+                    output_file=out.rel(file_dir / "metadata.json"),
                 )
                 result["findings_count"] += 1
 
@@ -535,6 +544,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                 remediation="Unpack the executable and analyse the underlying binary. "
                             "Determine if packing is legitimate (software protection) or suspicious.",
                 cwe=["CWE-506"],
+                output_file=out.rel(file_dir / "binary.json"),
             )
             result["findings_count"] += 1
 
@@ -551,9 +561,6 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
             types_found = set(s.get("type", "") for s in secrets_result)
             out.log(f"[secrets] {filepath.name} — {len(secrets_result)} secret(s) found: "
                     f"{', '.join(sorted(types_found))}")
-        else:
-            out.log(f"[secrets] {filepath.name} — no secrets detected")
-
             for secret in secrets_result:
                 out.add_finding(
                     title="Information Disclosure: Secret in File",
@@ -566,8 +573,11 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                     cwe=["CWE-798", "CWE-312"],
                     output=f"Type: {secret['type']}\nLine: {secret.get('line', '?')}\n"
                            f"Context: {secret.get('context', '')}",
+                    output_file=out.rel(file_dir / "secrets.json"),
                 )
                 result["findings_count"] += 1
+        else:
+            out.log(f"[secrets] {filepath.name} — no secrets detected")
 
     # ── 9. Archive extraction + recursive analysis ───────────
     if "archive" in modules and ident.get("is_archive") and depth < max_depth:
@@ -601,9 +611,6 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                         f"{cert_result.get('key_type', '?')} {cert_result.get('key_bits', '?')}-bit")
             else:
                 out.log(f"[certificate] {filepath.name} — parsed with keys: {list(cert_result.keys())}")
-        else:
-            out.log(f"[certificate] {filepath.name} — could not parse certificate data")
-
             if cert_result.get("key_bits") and cert_result["key_bits"] < 2048:
                 out.add_finding(
                     title=f"Weak cryptographic key ({cert_result['key_bits']} bits)",
@@ -613,8 +620,11 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                     affected=filepath.name,
                     remediation="Regenerate the certificate with at least 2048-bit RSA or 256-bit EC key.",
                     cwe=["CWE-326"],
+                    output_file=out.rel(file_dir / "certificate.json"),
                 )
                 result["findings_count"] += 1
+        else:
+            out.log(f"[certificate] {filepath.name} — could not parse certificate data")
 
     result["classification"] = ident.get("classification", "unknown")
     result["mime"] = ident.get("mime", "")
