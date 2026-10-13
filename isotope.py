@@ -25,7 +25,7 @@ from pathlib import Path
 
 VERSION = Path(__file__).resolve().parent.joinpath("VERSION").read_text().strip()
 
-_ISOTOPE_MANAGED = os.environ.get("ISOTOPE_MANAGED") == "1"
+_CRUCIBLE_MANAGED = os.environ.get("CRUCIBLE_MANAGED") == "1"
 _CP_LOG    = "__CRUCIBLE_LOG__:"
 _CP_ERR    = "__CRUCIBLE_ERR__:"
 _CP_STATUS = "__CRUCIBLE_STATUS__:"
@@ -46,7 +46,7 @@ except ImportError:
 # ── Console (managed/standalone) ─────────────────────────────
 class IsotopeConsole:
     def __init__(self):
-        self._managed = _ISOTOPE_MANAGED
+        self._managed = _CRUCIBLE_MANAGED
 
     def log(self, msg, level="INFO"):
         entry = {"ts": _now_iso(), "level": level, "message": msg}
@@ -259,7 +259,7 @@ class IsotopeOutput:
         entry.setdefault("datetime", _now_iso())
         entry.setdefault("metadata", {})
         self._action_items.append(entry)
-        if _ISOTOPE_MANAGED:
+        if _CRUCIBLE_MANAGED:
             sys.stdout.write(_CP_LOG + json.dumps(
                 {"ts": _now_iso(), "level": "ACTION_ITEM",
                  "message": f"Action Item: {entry['title']}"}) + "\n")
