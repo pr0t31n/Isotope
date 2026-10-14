@@ -512,8 +512,6 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
             meta_keys = [k for k in meta_result if k not in ("timestamps",)]
             out.log(f"[metadata] {filepath.name} — extracted: {', '.join(meta_keys) or 'timestamps only'}"
                     + (f", GPS={meta_result['gps_coordinates']}" if meta_result.get("gps_coordinates") else ""))
-        else:
-            out.log(f"[metadata] {filepath.name} — no extractable metadata found")
 
             if meta_result.get("gps_coordinates"):
                 out.add_finding(
@@ -528,6 +526,8 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                     output_file=out.rel(file_dir / "metadata.json"),
                 )
                 result["findings_count"] += 1
+        else:
+            out.log(f"[metadata] {filepath.name} — no extractable metadata found")
 
     # ── 7. Binary / executable analysis ──────────────────────
     if "binary" in modules and ident.get("classification") == "executable":
