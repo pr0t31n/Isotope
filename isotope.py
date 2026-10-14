@@ -338,6 +338,15 @@ class IsotopeOutput:
                 _us.atomic_write_json(self.root / "meta.json", meta)
             except Exception:
                 pass
+            try:
+                import pr0t31n_dep_snapshot as _ds
+                _ds.write_snapshot(
+                    self.root, "isotope", VERSION,
+                    binaries=[],
+                    pip_packages=["python-magic", "Pillow", "PyPDF2", "olefile", "cryptography", "ssdeep"],
+                )
+            except Exception:
+                pass
 
 
 def _risk_counts(findings):

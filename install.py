@@ -17,6 +17,26 @@ def _has(binary):
     return shutil.which(binary) is not None
 
 
+
+def _dpkg_installed(pkg):
+    try:
+        r = subprocess.run(["dpkg", "-s", pkg],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return r.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def _rpm_installed(pkg):
+    try:
+        return subprocess.run(
+            ["rpm", "-q", pkg],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        ).returncode == 0
+    except FileNotFoundError:
+        return False
+
+
 def _pip_installed(pkg_spec):
     import importlib.util
     name = pkg_spec.split(">=")[0].split("==")[0].split("[")[0].split("<")[0].strip()
@@ -44,7 +64,10 @@ def install_system_deps():
     if sys.platform.startswith("linux") and _has("apt-get"):
         print("\nInstalling system dependencies (apt)...")
         for pkg in deps_apt:
-            _run(["sudo", "apt-get", "install", "-y", pkg], check=False)
+            if _dpkg_installed(pkg):
+                print(f"  ✓ {pkg} already installed")
+            else:
+                _run(["sudo", "apt-get", "install", "-y", pkg], check=False)
     elif sys.platform == "darwin" and _has("brew"):
         print("\nInstalling system dependencies (brew)...")
         installed = _brew_installed_set()
