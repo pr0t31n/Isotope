@@ -1,7 +1,7 @@
 [
   {
     "id": "IS-001",
-    "title": "Known malicious file hash ({classification})",
+    "title": "File Analysis: Known malicious file hash ({classification})",
     "aliases": [
       "Malicious file detected",
       "IOC hash match"
@@ -79,7 +79,7 @@
   },
   {
     "id": "IS-002",
-    "title": "Encrypted file detected",
+    "title": "File Analysis: Encrypted file detected",
     "aliases": [
       "Likely encrypted file",
       "High entropy file"
@@ -153,7 +153,7 @@
   },
   {
     "id": "IS-003",
-    "title": "Possibly encrypted file detected",
+    "title": "File Analysis: Possibly encrypted file detected",
     "aliases": [
       "Elevated entropy file"
     ],
@@ -205,7 +205,7 @@
   },
   {
     "id": "IS-004",
-    "title": "GPS coordinates embedded in file metadata",
+    "title": "File Analysis: GPS coordinates embedded in file metadata",
     "aliases": [
       "EXIF GPS data",
       "Location metadata exposure"
@@ -271,7 +271,7 @@
   },
   {
     "id": "IS-005",
-    "title": "Packed/obfuscated executable detected ({packers})",
+    "title": "File Analysis: Packed/obfuscated executable detected ({packers})",
     "aliases": [
       "UPX packed binary",
       "Packed executable",
@@ -433,7 +433,7 @@
   },
   {
     "id": "IS-007",
-    "title": "Weak cryptographic key ({key_bits} bits)",
+    "title": "File Analysis: Weak cryptographic key ({key_bits} bits)",
     "aliases": [
       "Short RSA key",
       "Weak certificate key"

@@ -515,7 +515,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
 
             if meta_result.get("gps_coordinates"):
                 out.add_finding(
-                    title="GPS coordinates embedded in file metadata",
+                    title="File Analysis: GPS coordinates embedded in file metadata",
                     risk="LOW",
                     description=f"File {filepath.name} contains GPS coordinates in its EXIF metadata.\n"
                                 f"Coordinates: {meta_result['gps_coordinates']}",
