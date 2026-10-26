@@ -26,9 +26,10 @@ from pathlib import Path
 VERSION = Path(__file__).resolve().parent.joinpath("VERSION").read_text().strip()
 
 _CRUCIBLE_MANAGED = os.environ.get("CRUCIBLE_MANAGED") == "1"
-_CP_LOG    = "__CRUCIBLE_LOG__:"
-_CP_ERR    = "__CRUCIBLE_ERR__:"
-_CP_STATUS = "__CRUCIBLE_STATUS__:"
+_CP_LOG     = "__CRUCIBLE_LOG__:"
+_CP_ERR     = "__CRUCIBLE_ERR__:"
+_CP_STATUS  = "__CRUCIBLE_STATUS__:"
+_CP_FINDING = "__CRUCIBLE_FINDING__:"
 
 # ── Shared module imports (graceful fallback) ─────────────────
 try:
@@ -244,6 +245,24 @@ class IsotopeOutput:
         }
         self.findings.append(f)
         _console.log(f"FINDING [{risk}] {title}", "FINDING")
+        if _CRUCIBLE_MANAGED:
+            try:
+                sys.stdout.write(_CP_FINDING + json.dumps({
+                    "title": title, "ip": f.get("ip", ""),
+                    "port": f.get("port", 0),
+                    "hostname": f.get("hostname", ""),
+                    "risk": risk.upper(),
+                    "description": description,
+                    "sources": f.get("sources", ""),
+                    "service": f.get("service", ""),
+                    "affected": f.get("affected", ""),
+                    "cves": f.get("cves", ""),
+                    "output_file": f.get("output_file", ""),
+                    "remediation": f.get("remediation", ""),
+                }, ensure_ascii=False) + "\n")
+                sys.stdout.flush()
+            except Exception:
+                pass
 
     def add_action_item(self, entry):
         self._action_items = getattr(self, "_action_items", [])
