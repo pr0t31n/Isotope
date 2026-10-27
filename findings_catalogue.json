@@ -505,5 +505,134 @@
       "sslscan",
       "testssl"
     ]
+  },
+  {
+    "id": "IS-008",
+    "title": "Discovery: MIME Type Detected",
+    "aliases": [
+      "File type identified",
+      "MIME type discovery"
+    ],
+    "source_tools": [
+      "isotope"
+    ],
+    "risk": "INFO",
+    "description": "Isotope identified the MIME type and classification of an analyzed file. This informational finding records what type of file was discovered on the target system, providing visibility into file exposure without implying a vulnerability.",
+    "impact": "No direct security impact. Provides situational awareness of what file types are accessible on the target, which informs further analysis decisions and helps identify unexpected file exposure.",
+    "cwe": [
+      "CWE-200"
+    ],
+    "cve_examples": [],
+    "cvss_v3_base": null,
+    "cvss_vector": "",
+    "nessus_plugin_ids": [],
+    "qualys_qids": [],
+    "owasp_web": "",
+    "owasp_api": "",
+    "nist_csf2": [
+      "DE.AE-02"
+    ],
+    "nist_800_53": [
+      "SI-4"
+    ],
+    "nist_800_171": [],
+    "pci_dss_4": [],
+    "iso_27001": [],
+    "iso_27002": [],
+    "soc2": [],
+    "hitrust": [],
+    "gdpr": [],
+    "mitre_attack": [],
+    "searchsploit_terms": [],
+    "metasploit_modules": [],
+    "kev": false,
+    "remediation_brief": "Review file type and ensure it is expected for this context. No action required for expected file types.",
+    "remediation_component": "Application",
+    "remediation_category": "Configuration",
+    "remediation_effort": "Easy",
+    "validation_tools": [
+      "file",
+      "python-magic"
+    ]
+  },
+  {
+    "id": "IS-009",
+    "title": "File: {Classification} File Detected",
+    "aliases": [
+      "Plaintext file detected",
+      "Archive file detected",
+      "Document file detected",
+      "Executable file detected",
+      "Source code file detected",
+      "Certificate file detected"
+    ],
+    "source_tools": [
+      "isotope"
+    ],
+    "risk": "INFO",
+    "description": "A file was detected and classified by type. Risk is tiered by file sensitivity: HIGH for sensitive containers (archives, databases, backups, keys, executables, certificates), MEDIUM for office documents (docx, xlsx, pdf), LOW for non-web source code, and INFO for standard web files and plaintext. Risk is reduced by one level for internal-scope assessments.",
+    "impact": "Sensitive file types exposed on a target may contain credentials, proprietary data, database contents, or executable payloads. Even informational-tier files provide reconnaissance value by revealing application stack, configuration, and deployment details.",
+    "cwe": [
+      "CWE-200",
+      "CWE-538"
+    ],
+    "cve_examples": [],
+    "cvss_v3_base": null,
+    "cvss_vector": "",
+    "nessus_plugin_ids": [],
+    "qualys_qids": [],
+    "owasp_web": "A01:2021 - Broken Access Control",
+    "owasp_api": "",
+    "nist_csf2": [
+      "DE.AE-02",
+      "PR.DS-01"
+    ],
+    "nist_800_53": [
+      "SI-4",
+      "AC-3"
+    ],
+    "nist_800_171": [
+      "3.1.1"
+    ],
+    "pci_dss_4": [
+      "6.4.1"
+    ],
+    "iso_27001": [
+      "A.8.1.3"
+    ],
+    "iso_27002": [
+      "8.10"
+    ],
+    "soc2": [
+      "CC6.1"
+    ],
+    "hitrust": [],
+    "gdpr": [
+      "Art. 32"
+    ],
+    "mitre_attack": [
+      {
+        "technique": "T1005",
+        "tactic": "Collection",
+        "name": "Data from Local System"
+      },
+      {
+        "technique": "T1083",
+        "tactic": "Discovery",
+        "name": "File and Directory Discovery"
+      }
+    ],
+    "searchsploit_terms": [],
+    "metasploit_modules": [],
+    "kev": false,
+    "remediation_brief": "Verify that exposed files are intended to be accessible. Remove or restrict access to sensitive file types (archives, databases, certificates, executables, documents) that should not be publicly available. Implement proper access controls and directory listing restrictions.",
+    "remediation_component": "Application",
+    "remediation_category": "Access Control",
+    "remediation_effort": "Easy",
+    "validation_tools": [
+      "curl",
+      "wget",
+      "browser"
+    ]
   }
 ]

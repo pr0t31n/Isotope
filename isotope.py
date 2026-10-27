@@ -387,6 +387,64 @@ def _file_summary(result):
 
 
 # ═══════════════════════════════════════════════════════════════
+# FILE RISK CLASSIFICATION
+# ═══════════════════════════════════════════════════════════════
+
+_HIGH_RISK_EXTS = {
+    ".bak", ".sql", ".gz", ".tar", ".zip", ".7z", ".rar",
+    ".env", ".key", ".pem", ".p12", ".pfx", ".dat", ".db",
+    ".sqlite", ".mdb", ".kdb", ".kdbx", ".jks", ".keystore",
+    ".pcap", ".pcapng", ".cap", ".dmp", ".vmdk", ".ova",
+}
+_MEDIUM_RISK_EXTS = {
+    ".docx", ".xlsx", ".pptx", ".pdf", ".doc", ".xls", ".ppt",
+    ".odt", ".ods", ".odp", ".rtf", ".csv",
+}
+_LOW_RISK_CODE_EXTS = set(CODE_EXTENSIONS.keys()) - {
+    ".html", ".htm", ".css", ".js", ".json", ".xml", ".yaml",
+    ".yml", ".md", ".txt", ".svg",
+}
+_INFO_WEB_EXTS = {
+    ".html", ".htm", ".css", ".js", ".json", ".xml", ".yaml",
+    ".yml", ".txt", ".svg", ".md", ".config", ".htaccess",
+    ".ico", ".robots",
+}
+_INFO_WEB_NAMES = {"web.config", "robots.txt", ".htaccess", "sitemap.xml",
+                   "crossdomain.xml", "favicon.ico", "security.txt"}
+
+def _classify_file_risk(filepath, ident):
+    ext = ident.get("extension", "").lower()
+    name = filepath.name.lower()
+    cls = ident.get("classification", "unknown")
+    if cls == "executable":
+        return "HIGH"
+    if cls == "certificate":
+        return "HIGH"
+    if name in _INFO_WEB_NAMES or ext in _INFO_WEB_EXTS:
+        return "INFO"
+    if ext in _HIGH_RISK_EXTS:
+        return "HIGH"
+    if ext in _MEDIUM_RISK_EXTS:
+        return "MEDIUM"
+    if ext in _LOW_RISK_CODE_EXTS:
+        return "LOW"
+    if cls == "archive":
+        return "HIGH"
+    if cls == "code":
+        return "LOW"
+    if cls == "plaintext":
+        return "INFO"
+    if cls in ("image", "media"):
+        return "INFO"
+    return "LOW"
+
+def _demote_risk(risk):
+    _ORDER = {"CRITICAL": "HIGH", "HIGH": "MEDIUM", "MEDIUM": "LOW",
+              "LOW": "INFO", "INFO": "INFO"}
+    return _ORDER.get(risk, risk)
+
+
+# ═══════════════════════════════════════════════════════════════
 # ANALYSIS MODULES
 # ═══════════════════════════════════════════════════════════════
 
@@ -428,6 +486,48 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     _write_json(file_dir / "properties.json", ident)
     out.log(f"[identification] {filepath.name} — classified as {ident.get('classification', 'unknown')} "
             f"(mime={ident.get('mime', '?')}, magic={ident.get('magic_description', 'none')})")
+
+    # ── 1b. MIME type + file classification findings ────────
+    _mime = ident.get("mime", "application/octet-stream")
+    _cls = ident.get("classification", "unknown")
+    out.add_finding(
+        title="Discovery: MIME Type Detected",
+        risk="INFO",
+        description=f"File {filepath.name} identified as MIME type {_mime}.\n"
+                    f"Classification: {_cls}\n"
+                    f"Magic: {ident.get('magic_description', 'none')}",
+        affected=filepath.name,
+        remediation="Review file type and ensure it is expected for this context.",
+        output=f"MIME: {_mime}\nClassification: {_cls}\n"
+               f"Extension: {ident.get('extension', '')}\n"
+               f"Size: {ident.get('size_human', '')}",
+        output_file=out.rel(file_dir / "properties.json"),
+    )
+    result["findings_count"] += 1
+
+    _file_risk = _classify_file_risk(filepath, ident)
+    _scope = os.environ.get("CRUCIBLE_SCOPE", "")
+    if _scope in ("internal", "int"):
+        _file_risk = _demote_risk(_file_risk)
+    _risk_label = {"executable": "Executable", "certificate": "Certificate/Key",
+                   "archive": "Archive/Container", "code": "Source Code",
+                   "plaintext": "Plaintext", "image": "Image",
+                   "media": "Media", "binary": "Binary"}.get(_cls, _cls.title())
+    out.add_finding(
+        title=f"File: {_risk_label} File Detected",
+        risk=_file_risk,
+        description=f"Downloaded file {filepath.name} classified as {_cls} ({_mime}).\n"
+                    f"Size: {ident.get('size_human', 'unknown')}, "
+                    f"Lines: {ident.get('line_count', 'N/A')}",
+        affected=filepath.name,
+        remediation="Verify the file contents are expected. Sensitive files should not "
+                    "be publicly accessible.",
+        output=f"Classification: {_cls}\nMIME: {_mime}\n"
+               f"Size: {ident.get('size_human', '')}\n"
+               f"Text: {ident.get('is_text', False)}",
+        output_file=out.rel(file_dir / "properties.json"),
+    )
+    result["findings_count"] += 1
 
     # ── 2. Hashing + IOC lookup ──────────────────────────────
     if "hashing" in modules:
@@ -794,11 +894,19 @@ def _compute_hashes(data):
     return result
 
 
+_threat_db = None
+
+def _get_threat_db():
+    global _threat_db
+    if _threat_db is None and _ti:
+        _threat_db = _ti.ThreatIntelDB()
+    return _threat_db
+
 def _check_ioc(hashes):
-    if not _ti:
+    db = _get_threat_db()
+    if not db:
         return []
     hits = []
-    db = _ti.ThreatIntelDB()
     for algo in ("sha256", "md5", "sha1"):
         h = hashes.get(algo, "")
         if h:
