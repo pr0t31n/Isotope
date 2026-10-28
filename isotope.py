@@ -263,6 +263,15 @@ class IsotopeOutput:
                 sys.stdout.flush()
             except Exception:
                 pass
+        self._flush_findings()
+
+    def _flush_findings(self):
+        try:
+            p = self.root / "findings.json"
+            p.write_text(json.dumps(self.findings, indent=2, ensure_ascii=False),
+                         encoding="utf-8")
+        except Exception:
+            pass
 
     def add_action_item(self, entry):
         self._action_items = getattr(self, "_action_items", [])
