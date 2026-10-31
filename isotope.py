@@ -207,6 +207,17 @@ class IsotopeOutput:
         self.log_lines = []
         self.errors = []
         self._start = _now_iso()
+        self._fdb = None
+        _db_path = os.environ.get("PR0T31N_FINDINGS_DB")
+        if _db_path:
+            try:
+                import sys as _s
+                if "/opt/pr0t31n/shared" not in _s.path:
+                    _s.path.insert(0, "/opt/pr0t31n/shared")
+                import pr0t31n_findings_db
+                self._fdb = pr0t31n_findings_db.FindingsDB(_db_path)
+            except Exception:
+                self._fdb = None
 
     def log(self, msg):
         ts = _now_iso()
@@ -264,6 +275,11 @@ class IsotopeOutput:
             except Exception:
                 pass
         self._flush_findings()
+        if self._fdb:
+            try:
+                self._fdb.insert_finding(f)
+            except Exception:
+                pass
 
     def _flush_findings(self):
         try:
