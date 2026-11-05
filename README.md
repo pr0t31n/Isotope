@@ -6,6 +6,9 @@ detection, string extraction, code analysis, metadata extraction, binary/executa
 analysis, embedded secrets scanning, cryptographic hashing with IOC lookup, and
 recursive archive decomposition.
 
+
+> **[View full documentation on the Codex Wiki](https://wiki.pr0t31n.com/tools/isotope)** — detailed features, CLI reference, findings catalogue, and integration guides.
+
 ## Features
 
 - **File Identification** — Extension, MIME type, magic bytes, content classification
