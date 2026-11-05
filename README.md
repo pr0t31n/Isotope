@@ -80,6 +80,17 @@ cd /opt/pr0t31n/Isotope
 python3 install.py
 ```
 
+## CLI Reference
+
+| Flag | Type/Default | Description |
+|------|-------------|-------------|
+| `files` | positional | Files to analyse (one or more) |
+| `--settings` | `FILE` | JSON settings file (Crucible mode) |
+| `--output`, `-o` | `isotope_output` | Output directory for results |
+| `--max-depth` | `5` | Maximum archive recursion depth |
+| `--modules` | `all` | Comma-separated list of analysis modules to run |
+| `--version` | | Print version and exit |
+
 ## Usage
 
 ### Standalone
