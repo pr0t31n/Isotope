@@ -69,7 +69,7 @@
     "kev": false,
     "remediation_brief": "Quarantine this file immediately. Investigate its origin and any systems it has touched. Perform a full malware scan on the host. Review access logs to determine how the file arrived and whether it was executed. Rotate any credentials that may have been exposed.",
     "remediation_component": "Application",
-    "remediation_category": "Malware",
+    "remediation_category": "Endpoint Security",
     "remediation_effort": "Significant",
     "validation_tools": [
       "virustotal",
@@ -335,7 +335,7 @@
     "kev": false,
     "remediation_brief": "Unpack the executable and analyse the underlying binary. Determine if packing is legitimate (software protection) or suspicious. Submit to malware analysis sandbox for dynamic analysis. Block execution pending investigation.",
     "remediation_component": "Application",
-    "remediation_category": "Malware",
+    "remediation_category": "Endpoint Security",
     "remediation_effort": "Moderate",
     "validation_tools": [
       "upx",
