@@ -26,6 +26,14 @@ from pathlib import Path
 VERSION = Path(__file__).resolve().parent.joinpath("VERSION").read_text().strip()
 
 _CRUCIBLE_MANAGED = os.environ.get("CRUCIBLE_MANAGED") == "1"
+
+try:
+    import sys as _sys_ie
+    if "/opt/pr0t31n/shared" not in _sys_ie.path:
+        _sys_ie.path.insert(0, "/opt/pr0t31n/shared")
+    import pr0t31n_intel_emitter as _ie
+except ImportError:
+    _ie = None
 _CP_LOG     = "__CRUCIBLE_LOG__:"
 _CP_ERR     = "__CRUCIBLE_ERR__:"
 _CP_STATUS  = "__CRUCIBLE_STATUS__:"
@@ -509,6 +517,15 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     ident = _identify(filepath, data)
     result.update(ident)
     _write_json(file_dir / "properties.json", ident)
+    if _ie and _CRUCIBLE_MANAGED:
+        try:
+            _ie.emit_intel("isotope_property", {
+                "key": filepath.name,
+                "value": ident.get("mime", ""),
+                "category": ident.get("classification", "unknown"),
+            })
+        except Exception:
+            pass
     out.log(f"[identification] {filepath.name} — classified as {ident.get('classification', 'unknown')} "
             f"(mime={ident.get('mime', '?')}, magic={ident.get('magic_description', 'none')})")
 
@@ -595,6 +612,15 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
         result["entropy"] = entropy_result["overall_entropy"]
         result["encryption_assessment"] = entropy_result["assessment"]
         _write_json(file_dir / "entropy.json", entropy_result)
+        if _ie and _CRUCIBLE_MANAGED:
+            try:
+                _ie.emit_intel("isotope_entropy", {
+                    "entropy": entropy_result.get("overall_entropy", 0.0),
+                    "section_name": filepath.name,
+                    "offset": 0,
+                })
+            except Exception:
+                pass
         out.log(f"[entropy] {filepath.name} — entropy={entropy_result['overall_entropy']:.4f}, "
                 f"assessment={entropy_result['assessment']}"
                 + (f", method={entropy_result.get('estimated_method', '')}"
@@ -711,6 +737,16 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
         if secrets_result:
             _write_json(file_dir / "secrets.json", secrets_result)
             result["secrets_count"] = len(secrets_result)
+            if _ie and _CRUCIBLE_MANAGED:
+                try:
+                    _sec_rows = [{"secret_type": s.get("type", ""),
+                                  "value_preview": s.get("match", "")[:60],
+                                  "source": filepath.name}
+                                 for s in secrets_result]
+                    if _sec_rows:
+                        _ie.emit_intel("isotope_secret", _sec_rows, bulk=True)
+                except Exception:
+                    pass
             types_found = set(s.get("type", "") for s in secrets_result)
             out.log(f"[secrets] {filepath.name} — {len(secrets_result)} secret(s) found: "
                     f"{', '.join(sorted(types_found))}")
