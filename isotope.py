@@ -216,16 +216,17 @@ class IsotopeOutput:
         self.errors = []
         self._start = _now_iso()
         self._fdb = None
-        _db_path = os.environ.get("PR0T31N_FINDINGS_DB")
-        if _db_path:
-            try:
-                import sys as _s
-                if "/opt/pr0t31n/shared" not in _s.path:
-                    _s.path.insert(0, "/opt/pr0t31n/shared")
-                import pr0t31n_findings_db
-                self._fdb = pr0t31n_findings_db.FindingsDB(_db_path)
-            except Exception:
-                self._fdb = None
+        _db_path = os.environ.get("PR0T31N_FINDINGS_DB") or str(self.root / "findings.db")
+        try:
+            import sys as _s
+            if "/opt/pr0t31n/shared" not in _s.path:
+                _s.path.insert(0, "/opt/pr0t31n/shared")
+            import pr0t31n_findings_db
+            self._fdb = pr0t31n_findings_db.FindingsDB(_db_path)
+        except Exception:
+            self._fdb = None
+        if self._fdb and _ie:
+            _ie.init_db(self._fdb)
 
     def log(self, msg):
         ts = _now_iso()
@@ -282,12 +283,12 @@ class IsotopeOutput:
                 sys.stdout.flush()
             except Exception:
                 pass
-        self._flush_findings()
         if self._fdb:
             try:
                 self._fdb.insert_finding(f)
             except Exception:
                 pass
+        self._flush_findings()
 
     def _flush_findings(self):
         try:
@@ -517,7 +518,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
     ident = _identify(filepath, data)
     result.update(ident)
     _write_json(file_dir / "properties.json", ident)
-    if _ie and _CRUCIBLE_MANAGED:
+    if _ie:
         try:
             _ie.emit_intel("isotope_property", {
                 "key": filepath.name,
@@ -612,7 +613,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
         result["entropy"] = entropy_result["overall_entropy"]
         result["encryption_assessment"] = entropy_result["assessment"]
         _write_json(file_dir / "entropy.json", entropy_result)
-        if _ie and _CRUCIBLE_MANAGED:
+        if _ie:
             try:
                 _ie.emit_intel("isotope_entropy", {
                     "entropy": entropy_result.get("overall_entropy", 0.0),
@@ -737,7 +738,7 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
         if secrets_result:
             _write_json(file_dir / "secrets.json", secrets_result)
             result["secrets_count"] = len(secrets_result)
-            if _ie and _CRUCIBLE_MANAGED:
+            if _ie:
                 try:
                     _sec_rows = [{"secret_type": s.get("type", ""),
                                   "value_preview": s.get("match", "")[:60],
