@@ -587,6 +587,18 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
         hashes["ioc_hits"] = ioc_hits
         _write_json(file_dir / "hashes.json", hashes)
         out.log(f"[hashing] IOC lookup complete — {len(ioc_hits)} hit(s) found")
+        if _ie and ioc_hits:
+            try:
+                _ie.emit_intel("isotope_ioc", [
+                    {"hash_type": h.get("hash_type", ""),
+                     "hash": h.get("hash", ""),
+                     "classification": h.get("classification", ""),
+                     "sources": h.get("sources", []),
+                     "confidence": h.get("confidence", 0)}
+                    for h in ioc_hits
+                ], bulk=True)
+            except Exception:
+                pass
 
         if ioc_hits:
             for hit in ioc_hits:
@@ -656,6 +668,18 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                 f"URLs={len(strings_result.get('urls', []))}, "
                 f"IPs={len(strings_result.get('ip_addresses', []))}, "
                 f"emails={len(strings_result.get('email_addresses', []))}")
+        if _ie:
+            try:
+                _ie.emit_intel("isotope_string", {
+                    "total": strings_result["total"],
+                    "urls": strings_result.get("urls", [])[:50],
+                    "ip_addresses": strings_result.get("ip_addresses", [])[:50],
+                    "email_addresses": strings_result.get("email_addresses", [])[:50],
+                    "file_paths": strings_result.get("file_paths", [])[:50],
+                    "source": filepath.name,
+                })
+            except Exception:
+                pass
 
     # ── 5. Code analysis ─────────────────────────────────────
     if "code" in modules and ident.get("classification") == "code":
@@ -670,6 +694,18 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                 f"{code_result.get('blank_lines', 0)} blank lines, "
                 f"{len(code_result.get('imports', []))} imports, "
                 f"frameworks={code_result.get('frameworks', []) or 'none'}")
+        if _ie:
+            try:
+                _ie.emit_intel("isotope_code", {
+                    "language": code_result.get("language", ""),
+                    "lines_of_code": code_result.get("lines_of_code", 0),
+                    "code_lines": code_result.get("code_lines", 0),
+                    "imports": code_result.get("imports", []),
+                    "frameworks": code_result.get("frameworks", []),
+                    "source": filepath.name,
+                })
+            except Exception:
+                pass
 
     # ── 6. Metadata extraction ───────────────────────────────
     if "metadata" in modules:
@@ -683,6 +719,16 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
             meta_keys = [k for k in meta_result if k not in ("timestamps",)]
             out.log(f"[metadata] {filepath.name} — extracted: {', '.join(meta_keys) or 'timestamps only'}"
                     + (f", GPS={meta_result['gps_coordinates']}" if meta_result.get("gps_coordinates") else ""))
+            if _ie:
+                try:
+                    _ie.emit_intel("isotope_metadata", {
+                        "keys": [k for k in meta_result if k != "timestamps"],
+                        "has_gps": bool(meta_result.get("gps_coordinates")),
+                        "has_exif": bool(meta_result.get("exif")),
+                        "source": filepath.name,
+                    })
+                except Exception:
+                    pass
 
             if meta_result.get("gps_coordinates"):
                 out.add_finding(
@@ -713,6 +759,18 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
                 f"bits={binary_result.get('bits', '?')}, "
                 f"sections={len(binary_result.get('sections', []))}, "
                 f"packers={binary_result.get('packers', []) or 'none'}")
+        if _ie:
+            try:
+                _ie.emit_intel("isotope_binary", {
+                    "format": binary_result.get("format", ""),
+                    "architecture": binary_result.get("architecture", ""),
+                    "bits": binary_result.get("bits", 0),
+                    "sections": len(binary_result.get("sections", [])),
+                    "packers": binary_result.get("packers", []),
+                    "source": filepath.name,
+                })
+            except Exception:
+                pass
 
         if binary_result.get("packers"):
             out.add_finding(
@@ -781,6 +839,16 @@ def analyse_file(filepath, out, depth=0, max_depth=5, modules=None):
             out.log(f"[archive] {filepath.name} — type={contents.get('type', '?')}, "
                     f"{len(contents.get('entries', []))} entries, "
                     f"{len(contents.get('recursive_results', []))} recursively analysed")
+            if _ie:
+                try:
+                    _ie.emit_intel("isotope_content", {
+                        "archive_type": contents.get("type", ""),
+                        "entry_count": len(contents.get("entries", [])),
+                        "recursive_count": len(contents.get("recursive_results", [])),
+                        "source": filepath.name,
+                    })
+                except Exception:
+                    pass
         else:
             out.log(f"[archive] {filepath.name} — extraction returned no contents")
 
